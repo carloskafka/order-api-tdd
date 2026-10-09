@@ -5,10 +5,11 @@ class InMemoryStorage:
         self._orders = {}
 
     def get_order(self, order_id):
-        return self._orders.get(order_id)
+        order = self._orders.get(order_id)
+        return order.copy() if order is not None else None
 
     def save_order(self, order):
-        self._orders[order["order_id"]] = order
+        self._orders[order["order_id"]] = order.copy()
 
     def get_all_orders(self):
-        return list(self._orders.values())
+        return [order.copy() for order in self._orders.values()]
