@@ -99,7 +99,9 @@ def create_app(order_tracker=None):
     return application
 
 
-app = create_app()
+in_memory_storage = InMemoryStorage()
+order_tracker = OrderTracker(in_memory_storage)
+app = create_app(order_tracker)
 
 
 if __name__ == "__main__":

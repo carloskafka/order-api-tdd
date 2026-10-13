@@ -13,3 +13,7 @@ class InMemoryStorage:
 
     def get_all_orders(self):
         return [order.copy() for order in self._orders.values()]
+
+    def clear(self):
+        """Remove all stored orders, for test isolation and explicit reset."""
+        self._orders.clear()

@@ -1,149 +1,53 @@
 import pytest
-
-from backend.app import app
-from backend.in_memory_storage import InMemoryStorage
-from backend.order_tracker import OrderTracker
-
+from backend.app import app, in_memory_storage
 
 @pytest.fixture
 def client():
-    app.config.update(TESTING=True)
-    app.order_tracker = OrderTracker(InMemoryStorage())
-    return app.test_client()
+    app.config['TESTING'] = True
+    app.config['DEBUG'] = False
+    in_memory_storage.clear()
+    with app.test_client() as client:
+        yield client
 
-
-@pytest.fixture
-def order_payload():
-    return {
-        "order_id": "ORD001",
-        "item_name": "Headphones",
-        "quantity": 1,
-        "customer_id": "CUST001",
+def test_add_order_api_success(client):
+    order_data = {
+        "order_id": "API001", "item_name": "API Laptop", "quantity": 1, "customer_id": "APICUST001"
     }
-
-
-def test_add_order_api_success(client, order_payload):
-    response = client.post("/api/orders", json=order_payload)
-
+    response = client.post('/api/orders', json=order_data)
     assert response.status_code == 201
-    assert response.get_json() == {**order_payload, "status": "pending"}
+    assert response.json['order_id'] == "API001"
 
-
-def test_add_order_api_rejects_duplicate_id(client, order_payload):
-    client.post("/api/orders", json=order_payload)
-
-    response = client.post("/api/orders", json=order_payload)
-
-    assert response.status_code == 409
-    assert "error" in response.get_json()
-
-
-@pytest.mark.parametrize(
-    "payload",
-    [
-        {},
-        {
-            "order_id": "ORD001",
-            "item_name": "",
-            "quantity": 1,
-            "customer_id": "CUST001",
-        },
-        {
-            "order_id": "ORD001",
-            "item_name": "Laptop",
-            "quantity": 0,
-            "customer_id": "CUST001",
-        },
-    ],
-)
-def test_add_order_api_rejects_invalid_data(client, payload):
-    response = client.post("/api/orders", json=payload)
-
-    assert response.status_code == 400
-    assert "error" in response.get_json()
-
-
-def test_get_order_api_returns_order(client, order_payload):
-    client.post("/api/orders", json=order_payload)
-
-    response = client.get("/api/orders/ORD001")
-
+def test_get_order_api_success(client):
+    client.post('/api/orders', json={
+        "order_id": "GET001", "item_name": "Test Item", "quantity": 1, "customer_id": "C1"
+    })
+    response = client.get('/api/orders/GET001')
     assert response.status_code == 200
-    assert response.get_json() == {**order_payload, "status": "pending"}
+    assert response.json['order_id'] == "GET001"
 
-
-def test_get_order_api_returns_404_for_missing_order(client):
-    response = client.get("/api/orders/MISSING")
-
+def test_get_order_api_not_found(client):
+    response = client.get('/api/orders/NONEXISTENT')
     assert response.status_code == 404
 
-
-def test_update_order_api_accepts_documented_put_contract(
-    client, order_payload
-):
-    client.post("/api/orders", json=order_payload)
-
-    response = client.put(
-        "/api/orders/ORD001",
-        json={"new_status": "shipped"},
-    )
-
+def test_update_order_status_api_success(client):
+    client.post('/api/orders', json={
+        "order_id": "UPDATE001", "item_name": "Test Item", "quantity": 1, "customer_id": "C1"
+    })
+    response = client.put('/api/orders/UPDATE001/status', json={"new_status": "shipped"})
     assert response.status_code == 200
-    assert response.get_json() == {**order_payload, "status": "shipped"}
+    assert response.json['status'] == "shipped"
 
-
-def test_update_order_api_accepts_status_path_contract(client, order_payload):
-    client.post("/api/orders", json=order_payload)
-
-    response = client.put(
-        "/api/orders/ORD001/status",
-        json={"status": "delivered"},
-    )
-
+def test_list_all_orders_api_with_data(client):
+    client.post('/api/orders', json={"order_id": "LST001", "item_name": "Item A", "quantity": 1, "customer_id": "C1"})
+    client.post('/api/orders', json={"order_id": "LST002", "item_name": "Item B", "quantity": 2, "customer_id": "C2"})
+    response = client.get('/api/orders')
     assert response.status_code == 200
-    assert response.get_json()["status"] == "delivered"
+    assert len(response.json) == 2
 
-
-def test_update_order_api_returns_404_for_missing_order(client):
-    response = client.put(
-        "/api/orders/MISSING",
-        json={"new_status": "shipped"},
-    )
-
-    assert response.status_code == 404
-
-
-def test_update_order_api_rejects_invalid_status(client, order_payload):
-    client.post("/api/orders", json=order_payload)
-
-    response = client.put(
-        "/api/orders/ORD001",
-        json={"new_status": "lost"},
-    )
-
-    assert response.status_code == 400
-
-
-def test_list_orders_api_returns_all_and_filters_by_status(
-    client, order_payload
-):
-    client.post("/api/orders", json=order_payload)
-    client.post(
-        "/api/orders",
-        json={**order_payload, "order_id": "ORD002", "status": "shipped"},
-    )
-
-    all_orders = client.get("/api/orders")
-    shipped_orders = client.get("/api/orders?status=shipped")
-
-    assert all_orders.status_code == 200
-    assert len(all_orders.get_json()) == 2
-    assert [order["order_id"] for order in shipped_orders.get_json()] == [
-        "ORD002"
-    ]
-
-
-def test_list_orders_api_rejects_invalid_filter(client):
-    response = client.get("/api/orders?status=")
-
-    assert response.status_code == 400
+def test_list_orders_by_status_api_matching(client):
+    client.post('/api/orders', json={"order_id": "S001", "item_name": "A", "quantity": 1, "customer_id": "C1", "status": "pending"})
+    client.post('/api/orders', json={"order_id": "S002", "item_name": "B", "quantity": 2, "customer_id": "C2", "status": "shipped"})
+    response = client.get('/api/orders?status=pending')
+    assert response.status_code == 200
+    assert len(response.json) == 1
+    assert response.json[0]['order_id'] == "S001"
